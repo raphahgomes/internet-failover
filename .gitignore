@@ -1,0 +1,5 @@
+internet_failover.log
+internet_failover_state.json
+__pycache__/
+*.pyc
+screenshots/

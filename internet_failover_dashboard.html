@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TSC - Internet Failover Monitor</title>
+    <style>
+        :root {
+            --primary-purple: #5a2d82;
+            --deep-purple: #3e1e5a;
+            --secondary-gray: #b1b3b6;
+            --light-gray: #f3f4f6;
+            --dark-gray: #374151;
+            --black: #1a1a1a;
+            --white: #ffffff;
+            --success: #10b981;
+            --success-bg: #d1fae5;
+            --success-text: #065f46;
+            --warning: #f59e0b;
+            --warning-bg: #fef3c7;
+            --warning-text: #92400e;
+            --error: #ef4444;
+            --error-bg: #fee2e2;
+            --error-text: #991b1b;
+            --info: #3b82f6;
+            font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: linear-gradient(135deg, var(--deep-purple) 0%, var(--primary-purple) 100%);
+            min-height: 100vh;
+            color: var(--black);
+        }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+
+        /* Header */
+        header {
+            background: var(--white);
+            padding: 16px 24px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-bottom: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .header-left { display: flex; align-items: center; gap: 16px; }
+        .header-left h1 { color: var(--primary-purple); font-size: 24px; font-weight: 700; }
+        .header-left .subtitle { color: var(--secondary-gray); font-size: 13px; }
+        .header-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+        /* Status badges */
+        .badge {
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .badge-success { background: var(--success-bg); color: var(--success-text); }
+        .badge-warning { background: var(--warning-bg); color: var(--warning-text); }
+        .badge-error { background: var(--error-bg); color: var(--error-text); }
+        .badge .dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            display: inline-block;
+            animation: pulse 2s infinite;
+        }
+        .badge-success .dot { background: var(--success); }
+        .badge-warning .dot { background: var(--warning); }
+        .badge-error .dot { background: var(--error); }
+        @keyframes pulse { 0%,100%{opacity:1}50%{opacity:0.4} }
+
+        /* Cards */
+        .card {
+            background: var(--white);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+        }
+        .card h2 {
+            color: var(--primary-purple);
+            font-size: 18px;
+            margin-bottom: 16px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid var(--light-gray);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* Stats grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .stat-card {
+            background: linear-gradient(135deg, var(--primary-purple), var(--deep-purple));
+            color: white;
+            padding: 20px;
+            border-radius: 12px;
+            position: relative;
+            overflow: hidden;
+        }
+        .stat-card.green { background: linear-gradient(135deg, #059669, #047857); }
+        .stat-card.yellow { background: linear-gradient(135deg, #d97706, #b45309); }
+        .stat-card.red { background: linear-gradient(135deg, #dc2626, #b91c1c); }
+        .stat-card .label { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; opacity: 0.85; }
+        .stat-card .value { font-size: 28px; font-weight: 700; margin-top: 4px; }
+        .stat-card .detail { font-size: 12px; opacity: 0.75; margin-top: 4px; }
+        .stat-card .icon {
+            position: absolute;
+            top: 12px; right: 16px;
+            font-size: 28px;
+            opacity: 0.3;
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .btn:hover { transform: translateY(-1px); box-shadow: 0 4px 8px rgba(0,0,0,0.2); }
+        .btn:active { transform: translateY(0); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+        .btn-primary { background: var(--primary-purple); color: white; }
+        .btn-warning { background: var(--warning); color: white; }
+        .btn-success { background: var(--success); color: white; }
+        .btn-danger { background: var(--error); color: white; }
+        .btn-sm { padding: 6px 12px; font-size: 12px; }
+
+        /* Actions bar */
+        .actions-bar {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .actions-bar .separator {
+            width: 1px; height: 32px; background: var(--light-gray);
+        }
+
+        /* Container table */
+        .container-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        .container-table th {
+            text-align: left;
+            padding: 10px 12px;
+            background: var(--light-gray);
+            color: var(--dark-gray);
+            font-weight: 600;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .container-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--light-gray);
+        }
+        .container-table tr:hover td { background: #faf5ff; }
+        .container-table .status-up { color: var(--success); font-weight: 600; }
+        .container-table .status-down { color: var(--error); font-weight: 600; }
+        .container-table .status-stopped { color: var(--secondary-gray); }
+        .container-table .tag {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-weight: 600;
+        }
+        .tag-essential { background: #ede9fe; color: #5b21b6; }
+        .tag-heavy { background: var(--light-gray); color: var(--dark-gray); }
+
+        /* Log viewer */
+        .log-viewer {
+            background: #1a1a2e;
+            color: #e2e8f0;
+            font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
+            font-size: 12px;
+            line-height: 1.6;
+            padding: 16px;
+            border-radius: 8px;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .log-viewer .log-ok { color: #34d399; }
+        .log-viewer .log-warn { color: #fbbf24; }
+        .log-viewer .log-error { color: #f87171; }
+        .log-viewer .log-info { color: #93c5fd; }
+        .log-viewer .log-ts { color: #818cf8; }
+
+        /* Grid layout */
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        /* Toast alerts */
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .toast {
+            padding: 14px 20px;
+            border-radius: 8px;
+            color: white;
+            font-weight: 500;
+            font-size: 14px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            animation: slideIn 0.3s ease;
+            max-width: 380px;
+        }
+        .toast-success { background: var(--success); }
+        .toast-warning { background: var(--warning); }
+        .toast-error { background: var(--error); }
+        .toast-info { background: var(--info); }
+        @keyframes slideIn { from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1} }
+
+        /* Timeline */
+        .timeline-item {
+            padding: 8px 0;
+            border-left: 3px solid var(--light-gray);
+            padding-left: 16px;
+            margin-left: 8px;
+        }
+        .timeline-item.active { border-left-color: var(--success); }
+        .timeline-item .time { font-size: 12px; color: var(--secondary-gray); }
+        .timeline-item .event { font-size: 14px; font-weight: 500; }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .grid-2 { grid-template-columns: 1fr; }
+            .stats-grid { grid-template-columns: repeat(2, 1fr); }
+            header { flex-direction: column; align-items: flex-start; }
+        }
+        @media (max-width: 480px) {
+            .stats-grid { grid-template-columns: 1fr; }
+        }
+
+        /* Uptime bar */
+        .uptime-bar {
+            height: 6px;
+            background: var(--light-gray);
+            border-radius: 3px;
+            overflow: hidden;
+            margin-top: 8px;
+        }
+        .uptime-bar .fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.5s ease;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header>
+            <div class="header-left">
+                <div>
+                    <h1>🌐 Internet Failover Monitor</h1>
+                    <div class="subtitle">TSC Express - Monitoramento contínuo de rede e containers</div>
+                </div>
+            </div>
+            <div class="header-right">
+                <span id="modeBadge" class="badge badge-success"><span class="dot"></span> Cabo</span>
+                <span id="inetBadge" class="badge badge-success"><span class="dot"></span> Internet OK</span>
+                <span id="lastUpdate" style="font-size:12px;color:var(--secondary-gray)">--</span>
+            </div>
+        </header>
+
+        <!-- Stats -->
+        <div class="stats-grid">
+            <div class="stat-card green" id="statMode">
+                <div class="icon">🌐</div>
+                <div class="label">Modo Atual</div>
+                <div class="value" id="modeValue">--</div>
+                <div class="detail" id="modeDetail">--</div>
+            </div>
+            <div class="stat-card" id="statCable">
+                <div class="icon">🔌</div>
+                <div class="label">Cabo (Ethernet)</div>
+                <div class="value" id="cableValue">--</div>
+                <div class="detail" id="cableDetail">--</div>
+            </div>
+            <div class="stat-card" id="statModem">
+                <div class="icon">📡</div>
+                <div class="label">Modem 4G</div>
+                <div class="value" id="modemValue">--</div>
+                <div class="detail" id="modemDetail">--</div>
+            </div>
+            <div class="stat-card" id="statContainers">
+                <div class="icon">🐳</div>
+                <div class="label">Docker Containers</div>
+                <div class="value" id="containersValue">--</div>
+                <div class="detail" id="containersDetail">--</div>
+            </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="card">
+            <h2>⚡ Ações Rápidas</h2>
+            <div class="actions-bar">
+                <button class="btn btn-warning" onclick="force4G()" id="btn4g">📡 Forçar 4G</button>
+                <button class="btn btn-success" onclick="forceCable()" id="btnCable">🔌 Forçar Cabo</button>
+                <div class="separator"></div>
+                <button class="btn btn-primary btn-sm" onclick="refreshNow()">🔄 Atualizar Agora</button>
+                <span id="actionStatus" style="font-size:13px;color:var(--secondary-gray)"></span>
+            </div>
+        </div>
+
+        <!-- Two column layout -->
+        <div class="grid-2">
+            <!-- Containers -->
+            <div class="card">
+                <h2>🐳 Containers Docker</h2>
+                <table class="container-table" id="containerTable">
+                    <thead>
+                        <tr>
+                            <th>Container</th>
+                            <th>Tipo</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="containerBody">
+                        <tr><td colspan="3" style="text-align:center;color:var(--secondary-gray)">Carregando...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Logs -->
+            <div class="card">
+                <h2>📋 Log em Tempo Real</h2>
+                <div class="log-viewer" id="logViewer">Carregando logs...</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script>
+        const API = window.location.origin;
+        let lastMode = null;
+        let pollInterval = null;
+
+        // Essential container names
+        const ESSENTIAL = new Set([
+            "tsc_checklist_frontend", "tsc_checklist_backend", "tsc_checklist_postgres",
+            "tsc-api", "tsc-celery", "tsc-celery-beat", "tsc-websocket",
+            "tsc-redis", "tsc-postgres-central", "027b44a9e45f_tsc-keycloak", "oea_whatsapp"
+        ]);
+        const HEAVY = new Set([
+            "8a7d3bea5f04_wazuh-indexer", "wazuh-dashboard", "wazuh-manager", "wazuh-scheduler",
+            "postfix-relay", "oea_web_server", "oea_python_worker", "oea_traccar",
+            "oea_n8n", "oea_watchtower", "oea_router", "oea_redis",
+            "tsc_checklist_pgadmin", "tsc-pgadmin"
+        ]);
+
+        function showToast(msg, type = "info") {
+            const c = document.getElementById("toastContainer");
+            const t = document.createElement("div");
+            t.className = `toast toast-${type}`;
+            t.textContent = msg;
+            c.appendChild(t);
+            setTimeout(() => t.remove(), 5000);
+        }
+
+        function timeAgo(isoStr) {
+            if (!isoStr) return "--";
+            const d = new Date(isoStr);
+            const diff = Math.floor((Date.now() - d.getTime()) / 1000);
+            if (diff < 5) return "agora";
+            if (diff < 60) return `${diff}s atrás`;
+            if (diff < 3600) return `${Math.floor(diff/60)}m atrás`;
+            if (diff < 86400) return `${Math.floor(diff/3600)}h atrás`;
+            return `${Math.floor(diff/86400)}d atrás`;
+        }
+
+        function duration(isoStr) {
+            if (!isoStr) return "--";
+            const d = new Date(isoStr);
+            const diff = Math.floor((Date.now() - d.getTime()) / 1000);
+            if (diff < 60) return `${diff}s`;
+            if (diff < 3600) return `${Math.floor(diff/60)}m ${diff%60}s`;
+            const h = Math.floor(diff/3600);
+            const m = Math.floor((diff%3600)/60);
+            return `${h}h ${m}m`;
+        }
+
+        function setStatCard(id, className) {
+            const el = document.getElementById(id);
+            el.className = "stat-card " + className;
+        }
+
+        function setBadge(id, text, type) {
+            const el = document.getElementById(id);
+            el.className = `badge badge-${type}`;
+            el.innerHTML = `<span class="dot"></span> ${text}`;
+        }
+
+        async function fetchStatus() {
+            try {
+                const res = await fetch(`${API}/api/status`);
+                const s = await res.json();
+                updateDashboard(s);
+            } catch (e) {
+                setBadge("inetBadge", "Monitor Offline", "error");
+            }
+        }
+
+        function updateDashboard(s) {
+            const mode = s.mode || "unknown";
+            const inet = s.internet;
+
+            // Mode badge
+            if (mode === "cable") {
+                setBadge("modeBadge", "Cabo", "success");
+                document.getElementById("modeValue").textContent = "CABO";
+                setStatCard("statMode", "green");
+            } else if (mode === "4g") {
+                setBadge("modeBadge", "4G Ativo", "warning");
+                document.getElementById("modeValue").textContent = "4G";
+                setStatCard("statMode", "yellow");
+            } else {
+                setBadge("modeBadge", "Desconhecido", "error");
+                document.getElementById("modeValue").textContent = "?";
+                setStatCard("statMode", "red");
+            }
+            document.getElementById("modeDetail").textContent = `Há ${duration(s.modeChangedAt)}`;
+
+            // Internet badge
+            if (inet) {
+                setBadge("inetBadge", "Internet OK", "success");
+            } else {
+                setBadge("inetBadge", "SEM INTERNET", "error");
+            }
+
+            // Cable
+            const cUp = s.cableStatus === "Up";
+            document.getElementById("cableValue").textContent = cUp ? "UP" : "DOWN";
+            document.getElementById("cableDetail").textContent = `${s.cableAlias || "Ethernet 2"} | GW: ${s.cableGateway ? "OK" : "Sem resposta"}`;
+            setStatCard("statCable", cUp ? "green" : "red");
+
+            // Modem
+            const mUp = s.modemStatus === "Up";
+            document.getElementById("modemValue").textContent = mUp ? "UP" : "DOWN";
+            document.getElementById("modemDetail").textContent = s.modemAlias || "N/A";
+            setStatCard("statModem", mUp ? "green" : "red");
+
+            // Containers
+            const essUp = s.essentialUp || 0;
+            const essTot = s.essentialTotal || 0;
+            const heavyUp = s.heavyUp || 0;
+            const heavyTot = s.heavyTotal || 0;
+            document.getElementById("containersValue").textContent = `${essUp + heavyUp}`;
+            document.getElementById("containersDetail").textContent = `Essenciais: ${essUp}/${essTot} | Pesados: ${heavyUp}/${heavyTot}`;
+            const allOk = essUp === essTot && (mode === "cable" ? heavyUp === heavyTot : true);
+            setStatCard("statContainers", allOk ? "green" : (essUp === essTot ? "yellow" : "red"));
+
+            // Last update
+            document.getElementById("lastUpdate").textContent = `Atualizado ${timeAgo(s.lastUpdate)}`;
+
+            // Mode change notification
+            if (lastMode !== null && lastMode !== mode) {
+                if (mode === "4g") showToast("⚠️ Cabo caiu! Tráfego no 4G", "warning");
+                else if (mode === "cable") showToast("✅ Cabo voltou! Tráfego normal", "success");
+            }
+            lastMode = mode;
+        }
+
+        async function fetchContainers() {
+            try {
+                const res = await fetch(`${API}/api/containers`);
+                const data = await res.json();
+                renderContainers(data.containers || []);
+            } catch (e) {
+                document.getElementById("containerBody").innerHTML =
+                    '<tr><td colspan="3" style="color:var(--error)">Erro ao carregar containers</td></tr>';
+            }
+        }
+
+        function renderContainers(containers) {
+            const body = document.getElementById("containerBody");
+            if (!containers.length) {
+                body.innerHTML = '<tr><td colspan="3" style="color:var(--secondary-gray)">Nenhum container</td></tr>';
+                return;
+            }
+
+            // Sort: essential first, then heavy, then others
+            containers.sort((a, b) => {
+                const aE = ESSENTIAL.has(a.name) ? 0 : HEAVY.has(a.name) ? 1 : 2;
+                const bE = ESSENTIAL.has(b.name) ? 0 : HEAVY.has(b.name) ? 1 : 2;
+                return aE - bE || a.name.localeCompare(b.name);
+            });
+
+            body.innerHTML = containers.map(c => {
+                const isUp = c.status.toLowerCase().startsWith("up");
+                const isEssential = ESSENTIAL.has(c.name);
+                const isHeavy = HEAVY.has(c.name);
+                const tag = isEssential ? '<span class="tag tag-essential">Essencial</span>'
+                          : isHeavy ? '<span class="tag tag-heavy">Pesado</span>' : '';
+                const statusClass = isUp ? "status-up" : c.status.toLowerCase().includes("exited") ? "status-stopped" : "status-down";
+                const statusIcon = isUp ? "🟢" : "🔴";
+                return `<tr>
+                    <td><strong>${c.name}</strong></td>
+                    <td>${tag}</td>
+                    <td class="${statusClass}">${statusIcon} ${c.status}</td>
+                </tr>`;
+            }).join("");
+        }
+
+        async function fetchLogs() {
+            try {
+                const res = await fetch(`${API}/api/logs`);
+                const data = await res.json();
+                renderLogs(data.lines || []);
+            } catch (e) {
+                document.getElementById("logViewer").textContent = "Erro ao carregar logs";
+            }
+        }
+
+        function renderLogs(lines) {
+            const viewer = document.getElementById("logViewer");
+            viewer.innerHTML = lines.map(line => {
+                let cls = "log-info";
+                if (line.includes("[OK]")) cls = "log-ok";
+                else if (line.includes("[WARN]")) cls = "log-warn";
+                else if (line.includes("[ERROR]")) cls = "log-error";
+
+                // Highlight timestamp
+                const highlighted = line.replace(/^\[([^\]]+)\]/, '<span class="log-ts">[$1]</span>');
+                return `<span class="${cls}">${highlighted}</span>`;
+            }).join("\n");
+            viewer.scrollTop = viewer.scrollHeight;
+        }
+
+        async function force4G() {
+            const btn = document.getElementById("btn4g");
+            btn.disabled = true;
+            document.getElementById("actionStatus").textContent = "Forçando 4G...";
+            try {
+                await fetch(`${API}/api/force4g`, { method: "POST" });
+                showToast("Comando enviado: Forçar 4G", "warning");
+            } catch (e) {
+                showToast("Erro ao enviar comando", "error");
+            }
+            setTimeout(() => { btn.disabled = false; document.getElementById("actionStatus").textContent = ""; }, 5000);
+        }
+
+        async function forceCable() {
+            const btn = document.getElementById("btnCable");
+            btn.disabled = true;
+            document.getElementById("actionStatus").textContent = "Restaurando cabo...";
+            try {
+                await fetch(`${API}/api/forcecable`, { method: "POST" });
+                showToast("Comando enviado: Forçar Cabo", "success");
+            } catch (e) {
+                showToast("Erro ao enviar comando", "error");
+            }
+            setTimeout(() => { btn.disabled = false; document.getElementById("actionStatus").textContent = ""; }, 5000);
+        }
+
+        function refreshNow() {
+            fetchStatus();
+            fetchContainers();
+            fetchLogs();
+            showToast("Dashboard atualizado", "info");
+        }
+
+        // Poll
+        function startPolling() {
+            fetchStatus();
+            fetchContainers();
+            fetchLogs();
+            pollInterval = setInterval(() => {
+                fetchStatus();
+                fetchLogs();
+            }, 3000);
+            // Containers refresh slower (heavier call)
+            setInterval(fetchContainers, 10000);
+        }
+
+        // Init
+        document.addEventListener("DOMContentLoaded", startPolling);
+    </script>
+</body>
+</html>
