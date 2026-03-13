@@ -314,19 +314,28 @@ class TrayApp:
 
     def run(self):
         state = get_state()
-        self.icon = pystray.Icon(
-            "TSC-Failover",
-            icon=create_icon_image(state.get("mode", "unknown")),
-            title=get_tooltip(state),
-            menu=self._get_menu(),
-        )
-        self.icon.run_detached()
+        try:
+            self.icon = pystray.Icon(
+                "TSC-Failover",
+                icon=create_icon_image(state.get("mode", "unknown")),
+                title=get_tooltip(state),
+                menu=self._get_menu(),
+            )
+            self.icon.run_detached()
+            return True
+        except Exception as e:
+            print(f"[WARN] Tray icon nao disponivel: {e}")
+            self.icon = None
+            return False
 
     def update(self, mode):
         if self.icon:
-            self.icon.icon = create_icon_image(mode)
-            self.icon.title = get_tooltip(get_state())
-            self.icon.menu = self._get_menu()
+            try:
+                self.icon.icon = create_icon_image(mode)
+                self.icon.title = get_tooltip(get_state())
+                self.icon.menu = self._get_menu()
+            except Exception:
+                pass
 
     def stop(self):
         self._stop_event.set()
@@ -479,7 +488,7 @@ def start_http_server():
 
 def monitor_loop(tray):
     """Main monitoring loop - reads state and updates tray icon."""
-    while not tray.stopped:
+    while True:
         old_mode, new_mode = read_state()
 
         # Mode changed - send notification
@@ -551,10 +560,12 @@ def main():
     # Read initial state
     read_state()
 
-    # Start tray icon
+    # Start tray icon (optional — may fail in non-interactive sessions)
     tray = TrayApp()
-    tray.run()
-    print("[OK] Tray icon ativo")
+    if tray.run():
+        print("[OK] Tray icon ativo")
+    else:
+        print("[OK] Rodando sem tray icon (modo headless)")
 
     # Start monitor loop
     try:

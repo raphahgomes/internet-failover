@@ -50,7 +50,7 @@ $TASK_NAME  = "TSC-InternetFailover"
 
 # WhatsApp via oea_whatsapp container
 $WHATSAPP_URL = "http://localhost:3030"
-$WHATSAPP_ALERT_GROUP = "120363041847378069@g.us"  # Grupo Financeiro/Operacional
+$WHATSAPP_ALERT_PHONE = "5516982108990"
 
 # Containers essenciais que ficam rodando no 4G (TSC Checklist + TSC Processos + dependencias)
 $ESSENTIAL_CONTAINERS = @(
@@ -126,8 +126,8 @@ function Send-WindowsToast {
 function Send-WhatsAppAlert {
     param([string]$Message)
     try {
-        $body = @{ group = $WHATSAPP_ALERT_GROUP; message = $Message } | ConvertTo-Json -Compress
-        Invoke-RestMethod -Uri "$WHATSAPP_URL/api/send-group" -Method Post -Body $body `
+        $body = @{ phone = $WHATSAPP_ALERT_PHONE; message = $Message } | ConvertTo-Json -Compress
+        Invoke-RestMethod -Uri "$WHATSAPP_URL/send" -Method Post -Body $body `
             -ContentType "application/json" -TimeoutSec 10 -ErrorAction Stop | Out-Null
         Write-Log "  Alerta WhatsApp enviado" "OK"
     } catch {
