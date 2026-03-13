@@ -45,7 +45,26 @@ FAILOVER_SCRIPT = SCRIPT_DIR / "internet_failover.ps1"
 DASHBOARD_FILE = SCRIPT_DIR / "internet_failover_dashboard.html"
 HTTP_PORT = 8766
 POLL_INTERVAL = 5  # seconds
+STATE_STALE_SECONDS = 60  # if state file older than this, probe live
 TASK_NAME = "TSC-FailoverMonitor"
+
+# Network config (mirrors the PS1 script)
+CABLE_ALIAS = "Ethernet 2"
+CABLE_GW = "192.168.0.1"
+MODEM_DESC_PATTERN = "Remote NDIS"
+TEST_HOSTS = ["8.8.8.8", "1.1.1.1"]
+
+ESSENTIAL_CONTAINERS = [
+    "tsc_checklist_frontend", "tsc_checklist_backend", "tsc_checklist_postgres",
+    "tsc-api", "tsc-celery", "tsc-celery-beat", "tsc-websocket",
+    "tsc-redis", "tsc-postgres-central", "027b44a9e45f_tsc-keycloak", "oea_whatsapp",
+]
+HEAVY_CONTAINERS = [
+    "8a7d3bea5f04_wazuh-indexer", "wazuh-dashboard", "wazuh-manager", "wazuh-scheduler",
+    "postfix-relay", "oea_web_server", "oea_python_worker", "oea_traccar",
+    "oea_n8n", "oea_watchtower", "oea_router", "oea_redis",
+    "tsc_checklist_pgadmin", "tsc-pgadmin",
+]
 
 # ============================================================================
 # STATE MANAGEMENT
@@ -68,18 +87,134 @@ _state_lock = threading.Lock()
 _last_mode = "unknown"
 
 
-def read_state():
-    """Read state from JSON file written by PowerShell script."""
-    global _current_state, _last_mode
+def _run_cmd(args, timeout=5):
+    """Run a subprocess and return stdout, or empty string on error."""
+    try:
+        r = subprocess.run(args, capture_output=True, text=True, timeout=timeout,
+                           creationflags=subprocess.CREATE_NO_WINDOW)
+        return r.stdout.strip()
+    except Exception:
+        return ""
+
+
+def _ping_ok(host, count=2, timeout_ms=2000):
+    """Test if a host responds to ping."""
+    out = _run_cmd(["ping", "-n", str(count), "-w", str(timeout_ms), host])
+    return "bytes=" in out.lower() or "TTL=" in out
+
+
+def probe_live_state():
+    """Gather live system state when PS1 state file is unavailable."""
+    # Cable adapter status
+    cable_status = "Down"
+    cable_gw = False
+    ps_adapters = _run_cmd([
+        "powershell.exe", "-NoProfile", "-Command",
+        "Get-NetAdapter | Select-Object Name, Status, InterfaceDescription | ConvertTo-Json -Compress"
+    ], timeout=10)
+    adapters = []
+    try:
+        parsed = json.loads(ps_adapters)
+        adapters = parsed if isinstance(parsed, list) else [parsed]
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    for a in adapters:
+        if a.get("Name") == CABLE_ALIAS:
+            cable_status = a.get("Status", "Down")
+
+    # Modem status
+    modem_status = "Down"
+    modem_alias = "N/A"
+    for a in adapters:
+        desc = a.get("InterfaceDescription", "")
+        if MODEM_DESC_PATTERN.lower() in desc.lower():
+            modem_alias = a.get("Name", "N/A")
+            modem_status = a.get("Status", "Down")
+            break
+
+    # Gateway ping
+    if cable_status == "Up":
+        cable_gw = _ping_ok(CABLE_GW)
+
+    # Internet test
+    internet_ok = False
+    for host in TEST_HOSTS:
+        if _ping_ok(host):
+            internet_ok = True
+            break
+
+    # Determine mode
+    if cable_status == "Up" and cable_gw and internet_ok:
+        mode = "cable"
+    elif modem_status == "Up" and internet_ok:
+        mode = "4g"
+    elif cable_status == "Up" and cable_gw:
+        mode = "cable"
+    elif internet_ok:
+        mode = "cable"
+    else:
+        mode = "unknown"
+
+    # Docker containers
+    ess_up = 0
+    heavy_up = 0
+    docker_out = _run_cmd(["docker", "ps", "--format", "{{.Names}}"], timeout=10)
+    running = [n.strip() for n in docker_out.split("\n") if n.strip()] if docker_out else []
+    for c in ESSENTIAL_CONTAINERS:
+        if c in running:
+            ess_up += 1
+    for c in HEAVY_CONTAINERS:
+        if c in running:
+            heavy_up += 1
+
+    return {
+        "mode": mode,
+        "internet": internet_ok,
+        "cableStatus": cable_status,
+        "cableGateway": cable_gw,
+        "cableAlias": CABLE_ALIAS,
+        "modemStatus": modem_status,
+        "modemAlias": modem_alias,
+        "essentialUp": ess_up,
+        "essentialTotal": len(ESSENTIAL_CONTAINERS),
+        "heavyUp": heavy_up,
+        "heavyTotal": len(HEAVY_CONTAINERS),
+        "failCount": 0,
+        "recoverCount": 0,
+        "lastUpdate": datetime.now().isoformat(),
+        "modeChangedAt": None,
+        "source": "live_probe",
+    }
+
+
+def _state_file_is_fresh():
+    """Check if the state file exists and was written recently."""
     try:
         if STATE_FILE.exists():
+            age = time.time() - STATE_FILE.stat().st_mtime
+            return age < STATE_STALE_SECONDS
+    except OSError:
+        pass
+    return False
+
+
+def read_state():
+    """Read state from JSON file or probe live system."""
+    global _current_state, _last_mode
+    try:
+        if _state_file_is_fresh():
             data = json.loads(STATE_FILE.read_text(encoding="utf-8"))
-            with _state_lock:
-                _current_state.update(data)
-                new_mode = data.get("mode", "unknown")
-                old_mode = _last_mode
-                _last_mode = new_mode
-                return old_mode, new_mode
+            data["source"] = "ps1_script"
+        else:
+            data = probe_live_state()
+
+        with _state_lock:
+            _current_state.update(data)
+            new_mode = data.get("mode", "unknown")
+            old_mode = _last_mode
+            _last_mode = new_mode
+            return old_mode, new_mode
     except (json.JSONDecodeError, PermissionError):
         pass
     return _last_mode, _last_mode
