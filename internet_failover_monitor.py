@@ -66,6 +66,10 @@ HEAVY_CONTAINERS = [
     "tsc_checklist_pgadmin", "tsc-pgadmin",
 ]
 
+# WhatsApp config
+WHATSAPP_URL = "http://localhost:3030"
+WHATSAPP_ALERT_PHONE = "5516982108990"
+
 # ============================================================================
 # STATE MANAGEMENT
 # ============================================================================
@@ -370,6 +374,24 @@ def send_toast(title, body):
         pass
 
 
+def send_whatsapp(message):
+    """Send WhatsApp alert via oea_whatsapp container API."""
+    try:
+        import urllib.request
+        data = json.dumps({"phone": WHATSAPP_ALERT_PHONE, "message": message}).encode("utf-8")
+        req = urllib.request.Request(
+            f"{WHATSAPP_URL}/send",
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            resp.read()
+        print(f"[OK] WhatsApp enviado para {WHATSAPP_ALERT_PHONE}")
+    except Exception as e:
+        print(f"[WARN] WhatsApp falhou: {e}")
+
+
 # ============================================================================
 # HTTP API SERVER
 # ============================================================================
@@ -467,10 +489,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     @staticmethod
     def _run_failover(switch):
+        """Run failover script with admin elevation (UAC prompt)."""
         try:
+            # Use Start-Process -Verb RunAs for admin elevation
+            ps_cmd = (
+                f'Start-Process powershell.exe '
+                f'-ArgumentList "-ExecutionPolicy Bypass -File \"{FAILOVER_SCRIPT}\" {switch}" '
+                f'-Verb RunAs -Wait'
+            )
             subprocess.run(
-                ["powershell.exe", "-ExecutionPolicy", "Bypass",
-                 "-File", str(FAILOVER_SCRIPT), switch],
+                ["powershell.exe", "-NoProfile", "-Command", ps_cmd],
                 capture_output=True, timeout=120
             )
         except Exception as e:
@@ -491,17 +519,35 @@ def monitor_loop(tray):
     while True:
         old_mode, new_mode = read_state()
 
-        # Mode changed - send notification
+        # Mode changed - send notifications (toast + WhatsApp)
         if old_mode != new_mode and old_mode != "unknown":
+            ts = datetime.now().strftime("%H:%M:%S %d/%m")
             if new_mode == "4g":
                 send_toast(
-                    "⚠️ Internet: Cabo CAIU",
-                    "Tráfego mudou para 4G. Containers pesados parados."
+                    "Internet: Cabo CAIU",
+                    "Trafego mudou para 4G. Containers pesados parados."
+                )
+                send_whatsapp(
+                    f"[ALERTA] *INTERNET - CABO CAIU* ({ts})\n\n"
+                    f"Trafego no 4G. Containers pesados parados."
                 )
             elif new_mode == "cable":
                 send_toast(
-                    "✅ Internet: Cabo VOLTOU",
-                    "Tráfego restaurado para cabo. Containers reiniciados."
+                    "Internet: Cabo VOLTOU",
+                    "Trafego restaurado para cabo. Containers reiniciados."
+                )
+                send_whatsapp(
+                    f"[OK] *INTERNET - CABO VOLTOU* ({ts})\n\n"
+                    f"Trafego no cabo. Containers restaurados."
+                )
+            elif new_mode == "unknown":
+                send_toast(
+                    "SEM INTERNET",
+                    "Sem internet no cabo e no 4G."
+                )
+                send_whatsapp(
+                    f"[CRITICO] *SEM INTERNET* ({ts})\n\n"
+                    f"Sem internet no cabo e no 4G."
                 )
 
         tray.update(new_mode)

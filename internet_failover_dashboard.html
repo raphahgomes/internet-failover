@@ -450,7 +450,7 @@
                 document.getElementById("modeValue").textContent = "?";
                 setStatCard("statMode", "red");
             }
-            document.getElementById("modeDetail").textContent = `Há ${duration(s.modeChangedAt)}`;
+            document.getElementById("modeDetail").textContent = s.modeChangedAt ? `Há ${duration(s.modeChangedAt)}` : `Desde ${timeAgo(s.lastUpdate)}`;
 
             // Internet badge
             if (inet) {
@@ -466,10 +466,12 @@
             setStatCard("statCable", cUp ? "green" : "red");
 
             // Modem
-            const mUp = s.modemStatus === "Up";
-            document.getElementById("modemValue").textContent = mUp ? "UP" : "DOWN";
-            document.getElementById("modemDetail").textContent = s.modemAlias || "N/A";
-            setStatCard("statModem", mUp ? "green" : "red");
+            const mStatus = (s.modemStatus || "Down").toLowerCase();
+            const mUp = mStatus === "up";
+            const mDisabled = mStatus === "disabled";
+            document.getElementById("modemValue").textContent = mUp ? "UP" : mDisabled ? "STANDBY" : "DOWN";
+            document.getElementById("modemDetail").textContent = s.modemAlias && s.modemAlias !== "N/A" ? s.modemAlias : (mDisabled ? "Desabilitado (cabo ativo)" : "N/A");
+            setStatCard("statModem", mUp ? "green" : mDisabled ? "yellow" : "red");
 
             // Containers
             const essUp = s.essentialUp || 0;
