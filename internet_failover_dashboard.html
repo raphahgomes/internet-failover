@@ -598,12 +598,12 @@
             fetchStatus();
             fetchContainers();
             fetchLogs();
-            pollInterval = setInterval(() => {
-                fetchStatus();
-                fetchLogs();
-            }, 3000);
-            // Containers refresh slower (heavier call)
-            setInterval(fetchContainers, 10000);
+            // Status is lightweight - poll every 3s
+            setInterval(fetchStatus, 3000);
+            // Logs - poll every 10s (monitor writes periodically, not every second)
+            setInterval(fetchLogs, 10000);
+            // Containers - poll every 15s (heaviest call)
+            setInterval(fetchContainers, 15000);
         }
 
         // Init

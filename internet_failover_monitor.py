@@ -70,6 +70,36 @@ HEAVY_CONTAINERS = [
 WHATSAPP_URL = "http://localhost:3030"
 WHATSAPP_ALERT_PHONE = "5516982108990"
 
+# Log config
+LOG_INTERVAL_OK = 60       # log "tudo OK" a cada 60s (evita spam)
+LOG_INTERVAL_WARN = 20     # log warnings mais frequente
+
+# ============================================================================
+# LOGGING (shared log file with PS1)
+# ============================================================================
+
+_log_lock = threading.Lock()
+
+
+def write_log(msg, level="INFO"):
+    """Write to the shared log file (same format as PS1)."""
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    line = f"[{ts}] [{level}] {msg}"
+    print(line)
+    try:
+        with _log_lock:
+            with open(LOG_FILE, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+            # Rotate if > 2MB
+            if LOG_FILE.stat().st_size > 2 * 1024 * 1024:
+                old = LOG_FILE.with_suffix(".log.old")
+                if old.exists():
+                    old.unlink()
+                LOG_FILE.rename(old)
+    except Exception:
+        pass
+
+
 # ============================================================================
 # STATE MANAGEMENT
 # ============================================================================
@@ -89,6 +119,8 @@ _current_state = {
 }
 _state_lock = threading.Lock()
 _last_mode = "unknown"
+_mode_changed_at = None
+_last_ok_log = 0  # timestamp of last "tudo OK" log
 
 
 def _run_cmd(args, timeout=5):
@@ -187,7 +219,7 @@ def probe_live_state():
         "failCount": 0,
         "recoverCount": 0,
         "lastUpdate": datetime.now().isoformat(),
-        "modeChangedAt": None,
+        "modeChangedAt": _mode_changed_at.isoformat() if _mode_changed_at else None,
         "source": "live_probe",
     }
 
@@ -205,7 +237,7 @@ def _state_file_is_fresh():
 
 def read_state():
     """Read state from JSON file or probe live system."""
-    global _current_state, _last_mode
+    global _current_state, _last_mode, _mode_changed_at
     try:
         if _state_file_is_fresh():
             data = json.loads(STATE_FILE.read_text(encoding="utf-8"))
@@ -217,7 +249,13 @@ def read_state():
             _current_state.update(data)
             new_mode = data.get("mode", "unknown")
             old_mode = _last_mode
+            if old_mode != new_mode:
+                _mode_changed_at = datetime.now()
             _last_mode = new_mode
+            # Keep modeChangedAt in state
+            _current_state["modeChangedAt"] = (
+                _mode_changed_at.isoformat() if _mode_changed_at else None
+            )
             return old_mode, new_mode
     except (json.JSONDecodeError, PermissionError):
         pass
@@ -443,8 +481,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             lines = []
             try:
                 if LOG_FILE.exists():
-                    text = LOG_FILE.read_text(encoding="utf-8", errors="replace")
-                    lines = text.strip().split("\n")[-100:]
+                    text = LOG_FILE.read_text(encoding="utf-8-sig", errors="replace")
+                    lines = [l for l in text.strip().split("\n") if l.strip()][-100:]
             except PermissionError:
                 lines = ["[Erro lendo log - arquivo em uso]"]
             self._json_response({"lines": lines})
@@ -507,6 +545,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
 def start_http_server():
     server = HTTPServer(("127.0.0.1", HTTP_PORT), DashboardHandler)
+    server.socket.setsockopt(__import__("socket").SOL_SOCKET, __import__("socket").SO_REUSEADDR, 1)
     server.serve_forever()
 
 
@@ -516,13 +555,19 @@ def start_http_server():
 
 def monitor_loop(tray):
     """Main monitoring loop - reads state and updates tray icon."""
+    global _last_ok_log
+    write_log("Monitor Python iniciado (probe a cada {}s)".format(POLL_INTERVAL))
+
     while True:
         old_mode, new_mode = read_state()
+        state = get_state()
+        now = time.time()
 
-        # Mode changed - send notifications (toast + WhatsApp)
+        # Mode changed - send notifications (toast + WhatsApp) + log
         if old_mode != new_mode and old_mode != "unknown":
             ts = datetime.now().strftime("%H:%M:%S %d/%m")
             if new_mode == "4g":
+                write_log("MODO MUDOU: cabo -> 4G", "WARN")
                 send_toast(
                     "Internet: Cabo CAIU",
                     "Trafego mudou para 4G. Containers pesados parados."
@@ -531,7 +576,9 @@ def monitor_loop(tray):
                     f"[ALERTA] *INTERNET - CABO CAIU* ({ts})\n\n"
                     f"Trafego no 4G. Containers pesados parados."
                 )
+                write_log("Alertas enviados (toast + WhatsApp)", "OK")
             elif new_mode == "cable":
+                write_log("MODO MUDOU: 4G -> cabo", "OK")
                 send_toast(
                     "Internet: Cabo VOLTOU",
                     "Trafego restaurado para cabo. Containers reiniciados."
@@ -540,7 +587,9 @@ def monitor_loop(tray):
                     f"[OK] *INTERNET - CABO VOLTOU* ({ts})\n\n"
                     f"Trafego no cabo. Containers restaurados."
                 )
+                write_log("Alertas enviados (toast + WhatsApp)", "OK")
             elif new_mode == "unknown":
+                write_log("SEM INTERNET (cabo e 4G)", "ERROR")
                 send_toast(
                     "SEM INTERNET",
                     "Sem internet no cabo e no 4G."
@@ -549,6 +598,24 @@ def monitor_loop(tray):
                     f"[CRITICO] *SEM INTERNET* ({ts})\n\n"
                     f"Sem internet no cabo e no 4G."
                 )
+                write_log("Alertas enviados (toast + WhatsApp)", "OK")
+        elif new_mode != "unknown" and state.get("internet"):
+            # Periodic OK log (every LOG_INTERVAL_OK seconds)
+            if now - _last_ok_log >= LOG_INTERVAL_OK:
+                ess = f"{state.get('essentialUp', 0)}/{state.get('essentialTotal', 0)}"
+                heavy = f"{state.get('heavyUp', 0)}/{state.get('heavyTotal', 0)}"
+                write_log(
+                    f"OK -- {new_mode} | inet OK | cabo={state.get('cableStatus')} "
+                    f"modem={state.get('modemStatus')} | ess={ess} heavy={heavy}",
+                    "OK"
+                )
+                _last_ok_log = now
+        elif not state.get("internet"):
+            write_log(
+                f"SEM INTERNET -- modo={new_mode} cabo={state.get('cableStatus')} "
+                f"gw={state.get('cableGateway')} modem={state.get('modemStatus')}",
+                "WARN"
+            )
 
         tray.update(new_mode)
         time.sleep(POLL_INTERVAL)

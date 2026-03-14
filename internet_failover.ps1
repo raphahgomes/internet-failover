@@ -474,7 +474,9 @@ while ($true) {
     # Enrich state for dashboard
     $cableStatus = (Get-NetAdapter -Name $CABLE_ALIAS -ErrorAction SilentlyContinue).Status
     $modemAlias  = Get-ModemAlias
-    $modemStatus = if ($modemAlias) { "Up" } else { "Down" }
+    $modemAdapter = Get-NetAdapter | Where-Object { $_.InterfaceDescription -like "*$MODEM_DESC_PATTERN*" } | Select-Object -First 1
+    $modemStatus = if ($modemAdapter) { $modemAdapter.Status } else { "Down" }
+    $modemName   = if ($modemAlias) { $modemAlias } elseif ($modemAdapter) { $modemAdapter.Name } else { "N/A" }
     $essRunning  = @(docker ps --format '{{.Names}}' 2>&1 | Where-Object { $ESSENTIAL_CONTAINERS -contains $_ }).Count
     $heavyRunning = @(docker ps --format '{{.Names}}' 2>&1 | Where-Object { $HEAVY_CONTAINERS -contains $_ }).Count
 
@@ -483,7 +485,7 @@ while ($true) {
         lastUpdate=(Get-Date -Format "o"); modeChangedAt=$modeChangedAt.ToString("o")
         internet=$inetOk; cableGateway=$gwOk
         cableStatus=$cableStatus; cableAlias=$CABLE_ALIAS
-        modemStatus=$modemStatus; modemAlias=$(if($modemAlias){$modemAlias}else{"N/A"})
+        modemStatus=$modemStatus; modemAlias=$modemName
         essentialUp=$essRunning; essentialTotal=$ESSENTIAL_CONTAINERS.Count
         heavyUp=$heavyRunning; heavyTotal=$HEAVY_CONTAINERS.Count
     } | ConvertTo-Json | Set-Content $StateFile -Encoding UTF8 -ErrorAction SilentlyContinue
