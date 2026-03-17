@@ -331,7 +331,8 @@ class TrayApp:
             subprocess.run(
                 ["powershell.exe", "-ExecutionPolicy", "Bypass", "-File",
                  str(FAILOVER_SCRIPT), switch],
-                capture_output=True, timeout=120
+                capture_output=True, timeout=120,
+                creationflags=subprocess.CREATE_NO_WINDOW
             )
         except Exception as e:
             print(f"Erro executando PS1 {switch}: {e}")
@@ -406,7 +407,8 @@ def send_toast(title, body):
     try:
         subprocess.run(
             ["powershell.exe", "-NoProfile", "-Command", ps_code],
-            capture_output=True, timeout=10
+            capture_output=True, timeout=10,
+            creationflags=subprocess.CREATE_NO_WINDOW
         )
     except Exception:
         pass
@@ -491,7 +493,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             try:
                 result = subprocess.run(
                     ["docker", "ps", "-a", "--format", "{{.Names}}|{{.Status}}|{{.Image}}"],
-                    capture_output=True, text=True, timeout=10
+                    capture_output=True, text=True, timeout=10,
+                    creationflags=subprocess.CREATE_NO_WINDOW
                 )
                 containers = []
                 for line in result.stdout.strip().split("\n"):
@@ -537,7 +540,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             )
             subprocess.run(
                 ["powershell.exe", "-NoProfile", "-Command", ps_cmd],
-                capture_output=True, timeout=120
+                capture_output=True, timeout=120,
+                creationflags=subprocess.CREATE_NO_WINDOW
             )
         except Exception as e:
             print(f"Erro executando failover {switch}: {e}")

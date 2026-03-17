@@ -468,10 +468,13 @@
             // Modem
             const mStatus = (s.modemStatus || "Down").toLowerCase();
             const mUp = mStatus === "up";
-            const mDisabled = mStatus === "disabled";
-            document.getElementById("modemValue").textContent = mUp ? "UP" : mDisabled ? "STANDBY" : "DOWN";
-            document.getElementById("modemDetail").textContent = s.modemAlias && s.modemAlias !== "N/A" ? s.modemAlias : (mDisabled ? "Desabilitado (cabo ativo)" : "N/A");
-            setStatCard("statModem", mUp ? "green" : mDisabled ? "yellow" : "red");
+            const mStandby = mStatus === "disabled" || mStatus === "not present" || (mStatus === "down" && mode === "cable");
+            document.getElementById("modemValue").textContent = mUp ? "UP" : mStandby ? "STANDBY" : "DOWN";
+            const mDetail = mUp ? (s.modemAlias || "4G") + " (ativo)"
+                : mStandby ? (s.modemAlias && s.modemAlias !== "N/A" ? s.modemAlias + " - " : "") + (mStatus === "disabled" ? "Desabilitado" : mStatus === "not present" ? "Desconectado" : "Aguardando")
+                : s.modemAlias && s.modemAlias !== "N/A" ? s.modemAlias : "Offline";
+            document.getElementById("modemDetail").textContent = mDetail;
+            setStatCard("statModem", mUp ? "green" : mStandby ? "yellow" : "red");
 
             // Containers
             const essUp = s.essentialUp || 0;
