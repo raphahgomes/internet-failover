@@ -622,30 +622,57 @@ def monitor_loop(tray):
 
 
 # ============================================================================
-# INSTALL / UNINSTALL
+# INSTALL / UNINSTALL (Startup folder shortcut — works with tray icon)
 # ============================================================================
 
+def _get_startup_shortcut():
+    """Return the path for the Startup folder shortcut."""
+    startup = Path(os.environ.get("APPDATA", "")) / r"Microsoft\Windows\Start Menu\Programs\Startup"
+    return str(startup / f"{TASK_NAME}.lnk")
+
+
 def install_task():
-    python_exe = sys.executable
+    # Use pythonw.exe (no console window) to keep the monitor persistent
+    python_dir = Path(sys.executable).parent
+    pythonw = python_dir / "pythonw.exe"
+    if not pythonw.exists():
+        pythonw = python_dir / "python.exe"
     script_path = str(Path(__file__).resolve())
+    working_dir = str(Path(__file__).resolve().parent)
+    shortcut_path = _get_startup_shortcut()
+
     ps_cmd = f'''
-    $action = New-ScheduledTaskAction -Execute '"{python_exe}"' -Argument '"{script_path}"'
-    $trigger = New-ScheduledTaskTrigger -AtLogon
-    $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([timespan]::Zero) -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -StartWhenAvailable $true
-    Register-ScheduledTask -TaskName "{TASK_NAME}" -Action $action -Trigger $trigger -Settings $settings -Description "Monitor de failover com tray icon e dashboard" -Force | Out-Null
-    Start-ScheduledTask -TaskName "{TASK_NAME}"
-    Write-Host "Tarefa '{TASK_NAME}' instalada e iniciada."
+    $ws = New-Object -ComObject WScript.Shell
+    $sc = $ws.CreateShortcut("{shortcut_path}")
+    $sc.TargetPath = "{pythonw}"
+    $sc.Arguments = '"{script_path}"'
+    $sc.WorkingDirectory = "{working_dir}"
+    $sc.Description = "TSC Internet Failover Monitor"
+    $sc.Save()
+    Write-Host "Atalho criado em: {shortcut_path}"
     '''
-    subprocess.run(["powershell.exe", "-ExecutionPolicy", "Bypass", "-Command", ps_cmd])
+    subprocess.run(["powershell.exe", "-NoProfile", "-Command", ps_cmd])
+    # Also remove any stale scheduled task
+    subprocess.run([
+        "powershell.exe", "-NoProfile", "-Command",
+        f'Unregister-ScheduledTask -TaskName "{TASK_NAME}" -Confirm:$false -ErrorAction SilentlyContinue'
+    ], capture_output=True)
+    print(f"Instalado! O monitor inicia automaticamente ao fazer login.")
 
 
 def uninstall_task():
-    ps_cmd = f'''
-    Stop-ScheduledTask -TaskName "{TASK_NAME}" -ErrorAction SilentlyContinue
-    Unregister-ScheduledTask -TaskName "{TASK_NAME}" -Confirm:$false -ErrorAction SilentlyContinue
-    Write-Host "Tarefa '{TASK_NAME}' removida."
-    '''
-    subprocess.run(["powershell.exe", "-ExecutionPolicy", "Bypass", "-Command", ps_cmd])
+    shortcut_path = _get_startup_shortcut()
+    try:
+        Path(shortcut_path).unlink(missing_ok=True)
+        print(f"Atalho removido: {shortcut_path}")
+    except Exception as e:
+        print(f"Erro removendo atalho: {e}")
+    # Also clean up any scheduled task
+    subprocess.run([
+        "powershell.exe", "-NoProfile", "-Command",
+        f'Unregister-ScheduledTask -TaskName "{TASK_NAME}" -Confirm:$false -ErrorAction SilentlyContinue'
+    ], capture_output=True)
+    print("Desinstalado.")
 
 
 # ============================================================================
